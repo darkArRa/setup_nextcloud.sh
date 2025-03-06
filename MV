@@ -1,0 +1,119 @@
+#!/bin/bash
+
+# Variables de versión
+PHP_VERSION="8.1"
+NEXTCLOUD_VERSION="31.0.0"
+
+# Pedir correo y contraseña al usuario
+read -p "Introduce tu correo: " user_email
+read -sp "Introduce tu contraseña: " user_password
+echo
+
+# Paso 1: Instalar el Sistema Operativo y Activar SSH
+sudo systemctl enable ssh
+sudo systemctl start ssh
+
+# Paso 2: Configurar IP Fija y DNS
+sudo bash -c 'echo -e "\ninterface eth0\nstatic ip_address=192.168.1.47/24\nstatic routers=192.168.1.1\nstatic domain_name_servers=192.168.1.1 8.8.8.8" >> /etc/dhcpcd.conf'
+sudo systemctl restart dhcpcd
+
+# Paso 3: Actualizar el Sistema
+sudo apt update
+sudo apt upgrade -y
+
+# Paso 4: Añadir la Clave GPG y el Repositorio de PHP
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://packages.sury.org/php/apt.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/sury-php.gpg
+echo "deb [signed-by=/etc/apt/keyrings/sury-php.gpg] https://packages.sury.org/php/ $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/sury-php.list
+sudo apt update
+
+# Verificar disponibilidad de la versión de PHP
+if ! apt-cache madison php$PHP_VERSION; then
+    echo "La versión de PHP $PHP_VERSION no está disponible."
+    exit 1
+fi
+
+sudo apt install php$PHP_VERSION
+
+# Paso 5: Instalar Extensiones de PHP Necesarias para Nextcloud
+sudo apt install php${PHP_VERSION}-bz2 php${PHP_VERSION}-curl php${PHP_VERSION}-gd php${PHP_VERSION}-intl php${PHP_VERSION}-mbstring php${PHP_VERSION}-mysql php${PHP_VERSION}-xml php${PHP_VERSION}-zip -y
+
+# Paso 6: Instalar Apache y MariaDB
+sudo apt install apache2 mariadb-server libapache2-mod-php -y
+
+# Paso 7: Configurar MariaDB con expect
+sudo apt install expect -y
+
+sudo expect <<EOF
+set timeout 10
+spawn sudo mysql_secure_installation
+
+expect "Enter current password for root (enter for none):"
+send "\r"
+
+expect "Switch to unix_socket authentication [Y/n]"
+send "n\r"
+
+expect "Change the root password? [Y/n]"
+send "n\r"
+
+expect "Remove anonymous users? [Y/n]"
+send "y\r"
+
+expect "Disallow root login remotely? [Y/n]"
+send "n\r"
+
+expect "Remove test database and access to it? [Y/n]"
+send "y\r"
+
+expect "Reload privilege tables now? [Y/n]"
+send "y\r"
+
+expect eof
+EOF
+
+# Paso 8: Configurar Apache para PHP 8.1
+sudo a2dismod php7.4
+sudo a2enmod php$PHP_VERSION
+sudo systemctl restart apache2
+
+# Paso 9: Configurar Apache y Crear nextcloud.conf
+sudo bash -c 'cat <<EOF > /etc/apache2/sites-available/000-default.conf
+<VirtualHost *:80>
+    ServerName 192.168.1.47
+    ServerAdmin $user_email
+    DocumentRoot /var/www/html/nextcloud
+
+    <Directory /var/www/html/nextcloud>
+        Options Indexes FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    ErrorLog \${APACHE_LOG_DIR}/error.log
+    CustomLog \${APACHE_LOG_DIR}/access.log combined
+</VirtualHost>
+EOF'
+sudo a2ensite 000-default.conf
+sudo systemctl restart apache2
+
+# Paso 10: Descargar y Configurar Nextcloud
+cd /tmp
+wget https://download.nextcloud.com/server/releases/nextcloud-${NEXTCLOUD_VERSION}.zip
+unzip nextcloud-${NEXTCLOUD_VERSION}.zip
+sudo mv nextcloud /var/www/html/
+sudo chown -R www-data:www-data /var/www/html/nextcloud
+sudo find /var/www/html/nextcloud/ -type d -exec chmod 750 {} \;
+sudo find /var/www/html/nextcloud/ -type f -exec chmod 640 {} \;
+
+# Paso 11: Crear Base de Datos y Usuario para Nextcloud
+sudo mysql -u root -p <<EOF
+CREATE DATABASE nextcloud;
+CREATE USER 'mail'@'localhost' IDENTIFIED BY '$user_password';
+GRANT ALL PRIVILEGES ON nextcloud.* TO 'mail'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+EOF
+
+# Paso 12: Completar la Configuración de Nextcloud a través de la Web
+echo "Accede a http://192.168.1.47/nextcloud para completar la configuración."

@@ -10,14 +10,17 @@ read -sp "Introduce tu contraseña: " user_password
 echo
 
 # Obtener la IP de la máquina
-machine_ip=$(hostname -I | awk '{print $1}')
+function generate_random_ip {
+    echo "192.168.1.$((RANDOM % 254 + 1))/24"
+}
+machine_ip=$(generate_random_ip)
 
 # Paso 1: Instalar el Sistema Operativo y Activar SSH
 sudo systemctl enable ssh
 sudo systemctl start ssh
 
 # Paso 2: Configurar IP Fija y DNS
-sudo bash -c "echo -e '\ninterface eth0\nstatic ip_address=192.168.1.47/24\nstatic routers=192.168.1.1\nstatic domain_name_servers=192.168.1.1 8.8.8.8' >> /etc/dhcpcd.conf"
+sudo bash -c "echo -e '\ninterface eth0\nstatic ip_address=$machine_ip\nstatic routers=192.168.1.1\nstatic domain_name_servers=192.168.1.1 8.8.8.8' >> /etc/dhcpcd.conf"
 sudo systemctl restart dhcpcd
 
 # Paso 3: Actualizar el Sistema
@@ -118,4 +121,4 @@ FLUSH PRIVILEGES;
 EOF
 
 # Paso 12: Completar la Configuración de Nextcloud a través de la Web
-echo "Accede a http://$machine_ip/nextcloud para completar la configuración."
+echo "Accede a http://$(echo $machine_ip | cut -d'/' -f1)/nextcloud para completar la configuración."

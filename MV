@@ -88,7 +88,7 @@ sudo a2enmod php$PHP_VERSION
 sudo systemctl restart apache2
 
 # Paso 9: Configurar Apache y Crear nextcloud.conf
-sudo bash -c "cat <<EOF > /etc/apache2/sites-available/000-default.conf
+sudo bash -c "cat <<EOF > /etc/apache2/sites-available/nextcloud.conf
 <VirtualHost *:80>
     ServerName $machine_ip
     ServerAdmin $user_email
@@ -104,7 +104,7 @@ sudo bash -c "cat <<EOF > /etc/apache2/sites-available/000-default.conf
     CustomLog \${APACHE_LOG_DIR}/access.log combined
 </VirtualHost>
 EOF"
-sudo a2ensite 000-default.conf
+sudo a2ensite nextcloud.conf
 sudo systemctl restart apache2
 
 # Paso 10: Descargar y Configurar Nextcloud

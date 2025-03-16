@@ -92,9 +92,9 @@ sudo bash -c "cat <<EOF > /etc/apache2/sites-available/000-default.conf
 <VirtualHost *:80>
     ServerName $machine_ip
     ServerAdmin $user_email
-    DocumentRoot /var/www/html/nextcloud
+    DocumentRoot /var/www/nextcloud
 
-    <Directory /var/www/html/nextcloud>
+    <Directory /var/www/nextcloud>
         Options Indexes FollowSymLinks
         AllowOverride All
         Require all granted
@@ -111,10 +111,10 @@ sudo systemctl restart apache2
 cd /tmp
 wget https://download.nextcloud.com/server/releases/nextcloud-${NEXTCLOUD_VERSION}.zip
 unzip nextcloud-${NEXTCLOUD_VERSION}.zip
-sudo mv nextcloud /var/www/html/
-sudo chown -R www-data:www-data /var/www/html/nextcloud
-sudo find /var/www/html/nextcloud/ -type d -exec chmod 750 {} \;
-sudo find /var/www/html/nextcloud/ -type f -exec chmod 640 {} \;
+sudo mv nextcloud /var/www/
+sudo chown -R www-data:www-data /var/www/nextcloud
+sudo find /var/www/nextcloud/ -type d -exec chmod 750 {} \;
+sudo find /var/www/nextcloud/ -type f -exec chmod 640 {} \;
 
 # Paso 11: Crear Base de Datos y Usuario para Nextcloud
 sudo mysql -u root -p <<EOF

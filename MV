@@ -124,5 +124,42 @@ GRANT ALL PRIVILEGES ON nextcloud.* TO 'nextclouduser'@'localhost';
 FLUSH PRIVILEGES;
 EOF
 
-# Paso 12: Completar la Configuración de Nextcloud a través de la Web
-echo "Accede a http://$(echo $machine_ip | cut -d'/' -f1)/nextcloud para completar la configuración."
+# Paso 12: Crear el Grupo "Work" en Nextcloud
+sudo -u www-data php /var/www/nextcloud/occ group:add Work
+
+# Paso 13: Función para Crear Usuarios Adicionales con Contraseñas Robustas
+function add_nextcloud_user {
+    while true; do
+        read -p "Introduce el nombre de usuario: " username
+        read -sp "Introduce la contraseña para $username: " password
+        echo
+
+        # Verificar robustez de la contraseña
+        if [[ ${#password} -ge 12 && "$password" =~ [A-Z] && "$password" =~ [a-z] && "$password" =~ [0-9] && "$password" =~ [^a-zA-Z0-9] ]]; then
+            echo "La contraseña es válida."
+            break
+        else
+            echo "La contraseña debe tener al menos 12 caracteres, incluir mayúsculas, minúsculas, números y un carácter especial."
+        fi
+    done
+
+    # Crear el usuario y asignarlo al grupo "Work"
+    sudo -u www-data php /var/www/nextcloud/occ user:add --password-from-env --display-name="$username" --group="Work" "$username" <<< "$password"
+
+    echo "Usuario $username creado y asignado al grupo 'Work'."
+}
+
+# Preguntar si se quieren añadir usuarios adicionales
+read -p "¿Deseas añadir usuarios adicionales a Nextcloud? (s/n): " add_users
+if [[ "$add_users" == "s" ]]; then
+    while true; do
+        add_nextcloud_user
+        read -p "¿Quieres añadir otro usuario? (s/n): " add_more
+        if [[ "$add_more" != "s" ]]; then
+            break
+        fi
+    done
+fi
+
+# Paso 14: Finalización
+echo "¡Configuración completa! Accede a http://$(echo $machine_ip | cut -d'/' -f1)/nextcloud para continuar."

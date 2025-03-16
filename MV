@@ -1,8 +1,12 @@
 #!/bin/bash
 
-# Variables de versión
-PHP_VERSION="8.1"
-NEXTCLOUD_VERSION="31.0.0"
+# Detectar la última versión estable de Nextcloud
+NEXTCLOUD_VERSION=$(curl -s https://nextcloud.com/changelog/ | grep -oP '(?<=<strong>Nextcloud )[\d\.]+' | head -1)
+
+# Detectar la última versión de PHP disponible en el repositorio
+PHP_VERSION=$(apt-cache search php | grep -oP '^php[\d\.]+' | sort -V | tail -1 | cut -d'p' -f2)
+
+echo "Usando Nextcloud $NEXTCLOUD_VERSION y PHP $PHP_VERSION"
 
 # Pedir correo y contraseña al usuario
 read -p "Introduce tu correo: " user_email
@@ -78,7 +82,7 @@ send "y\r"
 expect eof
 EOF
 
-# Paso 8: Configurar Apache para PHP 8.1
+# Paso 8: Configurar Apache para PHP
 sudo a2dismod php7.4
 sudo a2enmod php$PHP_VERSION
 sudo systemctl restart apache2

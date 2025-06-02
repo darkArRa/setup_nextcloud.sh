@@ -1,19 +1,33 @@
 #!/bin/bash
 
 # Detectar la última versión estable de Nextcloud
-NEXTCLOUD_VERSION=$(curl -s https://nextcloud.com/changelog/ | grep -oP '(?<=<strong>Nextcloud )[\d\.]+' | head -1)
+NEXTCLOUD_VERSION=$(curl -s https://download.nextcloud.com/server/releases/ | grep -Po 'nextcloud-\K[0-9]+\.[0-9]+\.[0-9]+' | sort -V | tail -1)
 
-# Detectar la última versión de PHP disponible en el repositorio sury
+if [[ -z "$NEXTCLOUD_VERSION" ]]; then
+    echo "❌ No se pudo detectar la versión de Nextcloud automáticamente."
+    echo "Usa una versión manualmente, por ejemplo: 26.0.5"
+    read -p "Introduce la versión de Nextcloud a instalar: " NEXTCLOUD_VERSION
+fi
+
+echo "Usando Nextcloud versión: $NEXTCLOUD_VERSION"
+
+# Detectar la última versión de PHP disponible en el repositorio
 PHP_VERSION=$(apt-cache search php | grep -oP '^php[\d\.]+' | sort -V | tail -1 | cut -d'p' -f2)
 
-echo "Usando Nextcloud $NEXTCLOUD_VERSION y PHP $PHP_VERSION"
+if [[ -z "$PHP_VERSION" ]]; then
+    echo "❌ No se pudo detectar la versión de PHP automáticamente."
+    echo "Por favor instala PHP manualmente y modifica el script."
+    exit 1
+fi
+
+echo "Usando PHP versión: $PHP_VERSION"
 
 # Pedir correo y contraseña al usuario
 read -p "Introduce tu correo: " user_email
-read -sp "Introduce tu contraseña (para Nextcloud y base de datos): " user_password
+read -sp "Introduce tu contraseña para la base de datos y Nextcloud: " user_password
 echo
 
-# Obtener la IP de la máquina (mantienes tu método, aquí no la cambio)
+# Obtener la IP de la máquina
 function generate_random_ip {
     echo "192.168.1.$((RANDOM % 254 + 1))/24"
 }
@@ -23,7 +37,7 @@ machine_ip=$(generate_random_ip)
 sudo systemctl enable ssh
 sudo systemctl start ssh
 
-# Paso 2: Configurar IP Fija y DNS (no modificado, lo mantienes)
+# Paso 2: Configurar IP Fija y DNS
 sudo bash -c "echo -e '\ninterface eth0\nstatic ip_address=$machine_ip\nstatic routers=192.168.1.1\nstatic domain_name_servers=192.168.1.1 8.8.8.8' >> /etc/dhcpcd.conf"
 sudo systemctl restart dhcpcd
 
@@ -38,15 +52,15 @@ echo "deb [signed-by=/etc/apt/keyrings/sury-php.gpg] https://packages.sury.org/p
 sudo apt update
 
 # Verificar disponibilidad de la versión de PHP
-if ! apt-cache madison php$PHP_VERSION >/dev/null; then
-    echo "La versión de PHP $PHP_VERSION no está disponible."
+if ! apt-cache madison php$PHP_VERSION &>/dev/null; then
+    echo "❌ La versión de PHP $PHP_VERSION no está disponible en los repositorios."
     exit 1
 fi
 
 sudo apt install -y php$PHP_VERSION
 
 # Paso 5: Instalar Extensiones de PHP Necesarias para Nextcloud
-sudo apt install -y php${PHP_VERSION}-bz2 php${PHP_VERSION}-curl php${PHP_VERSION}-gd php${PHP_VERSION}-intl php${PHP_VERSION}-mbstring php${PHP_VERSION}-mysql php${PHP_VERSION}-xml php${PHP_VERSION}-zip
+sudo apt install -y php${PHP_VERSION}-bz2 php${PHP_VERSION}-curl php${PHP_VERSION}-gd php${PHP_VERSION}-intl php${PHP_VERSION}-mbstring php${PHP_VERSION}-mysql php${PHP_VERSION}-xml php${PHP_VERSION}-zip php${PHP_VERSION}-fpm
 
 # Paso 6: Instalar Apache y MariaDB
 sudo apt install -y apache2 mariadb-server libapache2-mod-php
@@ -55,35 +69,30 @@ sudo apt install -y apache2 mariadb-server libapache2-mod-php
 sudo apt install -y expect
 
 sudo expect <<EOF
-set timeout 10
+set timeout 20
 spawn sudo mysql_secure_installation
 
-expect "Enter current password for root (enter for none):"
-send "\r"
-
-expect "Switch to unix_socket authentication [Y/n]"
-send "n\r"
-
-expect "Change the root password? [Y/n]"
-send "n\r"
-
-expect "Remove anonymous users? [Y/n]"
-send "y\r"
-
-expect "Disallow root login remotely? [Y/n]"
-send "n\r"
-
-expect "Remove test database and access to it? [Y/n]"
-send "y\r"
-
-expect "Reload privilege tables now? [Y/n]"
-send "y\r"
-
-expect eof
+expect {
+    "Enter current password for root (enter for none):" { send "\r"; exp_continue }
+    "Switch to unix_socket authentication" { send "n\r"; exp_continue }
+    "Change the root password?" { send "n\r"; exp_continue }
+    "Remove anonymous users?" { send "y\r"; exp_continue }
+    "Disallow root login remotely?" { send "n\r"; exp_continue }
+    "Remove test database and access to it?" { send "y\r"; exp_continue }
+    "Reload privilege tables now?" { send "y\r"; exp_continue }
+    eof
+}
 EOF
 
-# Paso 8: Configurar Apache para PHP (activar solo la versión instalada)
+# Paso 8: Configurar Apache para PHP
+# Deshabilitar cualquier versión de PHP activada previamente
+for ver in $(ls /etc/php/); do
+    sudo a2dismod php$ver 2>/dev/null || true
+done
+
+# Activar el módulo php correspondiente
 sudo a2enmod php$PHP_VERSION
+
 sudo systemctl restart apache2
 
 # Paso 9: Configurar Apache y Crear nextcloud.conf
@@ -103,14 +112,14 @@ sudo bash -c "cat <<EOF > /etc/apache2/sites-available/nextcloud.conf
     CustomLog \${APACHE_LOG_DIR}/access.log combined
 </VirtualHost>
 EOF"
+
 sudo a2ensite nextcloud.conf
-sudo systemctl restart apache2
+sudo systemctl reload apache2
 
 # Paso 10: Descargar y Configurar Nextcloud
 cd /tmp
 wget -O nextcloud.zip "https://download.nextcloud.com/server/releases/nextcloud-${NEXTCLOUD_VERSION}.zip"
 
-# Verificar si la descarga fue exitosa
 if [[ ! -f nextcloud.zip ]]; then
     echo "❌ Error: no se pudo descargar Nextcloud. Revisa tu conexión o la URL."
     exit 1
@@ -128,9 +137,9 @@ sudo find /var/www/nextcloud/ -type d -exec chmod 750 {} \;
 sudo find /var/www/nextcloud/ -type f -exec chmod 640 {} \;
 
 # Paso 11: Crear Base de Datos y Usuario para Nextcloud
-sudo mysql -u root -p <<EOF
-CREATE DATABASE nextcloud;
-CREATE USER 'nextclouduser'@'localhost' IDENTIFIED BY '$user_password';
+sudo mysql -u root <<EOF
+CREATE DATABASE IF NOT EXISTS nextcloud;
+CREATE USER IF NOT EXISTS 'nextclouduser'@'localhost' IDENTIFIED BY '$user_password';
 GRANT ALL PRIVILEGES ON nextcloud.* TO 'nextclouduser'@'localhost';
 FLUSH PRIVILEGES;
 EOF
@@ -145,17 +154,17 @@ function add_nextcloud_user {
         read -sp "Introduce la contraseña para $username: " password
         echo
 
-        # Verificar robustez de la contraseña
         if [[ ${#password} -ge 12 && "$password" =~ [A-Z] && "$password" =~ [a-z] && "$password" =~ [0-9] && "$password" =~ [^a-zA-Z0-9] ]]; then
-            echo "La contraseña es válida."
+            echo "Contraseña válida."
             break
         else
             echo "La contraseña debe tener al menos 12 caracteres, incluir mayúsculas, minúsculas, números y un carácter especial."
         fi
     done
 
-    # Crear el usuario y asignarlo al grupo "Work"
-    sudo -u www-data php /var/www/nextcloud/occ user:add --password-from-env --display-name="$username" --group="Work" "$username" <<< "$password"
+    export OC_PASS=$password
+    sudo -u www-data php /var/www/nextcloud/occ user:add --password-from-env --display-name="$username" --group="Work" "$username"
+    unset OC_PASS
 
     echo "Usuario $username creado y asignado al grupo 'Work'."
 }

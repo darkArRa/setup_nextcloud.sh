@@ -109,8 +109,22 @@ sudo systemctl restart apache2
 
 # Paso 10: Descargar y Configurar Nextcloud
 cd /tmp
-wget https://download.nextcloud.com/server/releases/nextcloud-${NEXTCLOUD_VERSION}.zip
-unzip nextcloud-${NEXTCLOUD_VERSION}.zip
+wget -O nextcloud.zip "https://download.nextcloud.com/server/releases/nextcloud-${NEXTCLOUD_VERSION}.zip"
+
+# Verificar si la descarga fue exitosa
+if [[ ! -f nextcloud.zip ]]; then
+    echo "❌ Error: no se pudo descargar Nextcloud. Revisa tu conexión o la URL."
+    exit 1
+fi
+
+# Verificar si la extracción tuvo éxito
+unzip -q nextcloud.zip
+if [[ ! -d nextcloud ]]; then
+    echo "❌ Error: el archivo ZIP no contenía la carpeta 'nextcloud'."
+    exit 1
+fi
+
+# Mover y configurar permisos
 sudo mv nextcloud /var/www/
 sudo chown -R www-data:www-data /var/www/nextcloud
 sudo find /var/www/nextcloud/ -type d -exec chmod 750 {} \;
